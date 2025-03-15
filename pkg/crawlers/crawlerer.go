@@ -6,8 +6,8 @@ type (
 	// Crawler осовной интерфейс для краулеров
 	Crawler interface {
 		PageParse(ctx context.Context, task Task) error
-		ListParse(ctx context.Context) error
-		ModelParse(ctx context.Context, brandId string) error
+		ListParse(ctx context.Context, url string) error
+		ModelParse(ctx context.Context) error
 		BrandParse(ctx context.Context) error
 	}
 

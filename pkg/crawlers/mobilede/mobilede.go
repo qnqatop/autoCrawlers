@@ -4,27 +4,31 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/gocolly/colly/v2"
-	"log/slog"
-	"qnqa-auto-crawlers/pkg/crawlers"
 	"strings"
-	"sync"
 	"time"
+
+	"qnqa-auto-crawlers/pkg/crawlers"
+	"qnqa-auto-crawlers/pkg/db"
+	"qnqa-auto-crawlers/pkg/limitgroup"
+	"qnqa-auto-crawlers/pkg/logger"
+
+	"github.com/gocolly/colly/v2"
 )
 
 type Crawler struct {
-	logger    *slog.Logger
+	logger    logger.Logger
 	collector *colly.Collector
+	repo      *db.MobileDeRepo
 }
 
-func NewCrawler(logger *slog.Logger) *Crawler {
+func NewCrawler(logger logger.Logger, repo *db.MobileDeRepo) *Crawler {
 	collector := colly.NewCollector(
 		colly.AllowedDomains("suchen.mobile.de", "m.mobile.de", "www.mobile.de", "mobile.de"),
 		colly.UserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"),
 		colly.IgnoreRobotsTxt(),
 	)
 
-	collector.Limit(&colly.LimitRule{
+	_ = collector.Limit(&colly.LimitRule{
 		DomainGlob:  "*.mobile.de",
 		Parallelism: 10,
 		Delay:       100 * time.Millisecond,
@@ -35,31 +39,14 @@ func NewCrawler(logger *slog.Logger) *Crawler {
 	return &Crawler{
 		logger:    logger,
 		collector: collector,
+		repo:      repo,
 	}
 }
 
+// BrandParse парсим бренды
 func (c *Crawler) BrandParse(ctx context.Context) error {
 	collector := c.collector.Clone()
 	collector.SetRequestTimeout(time.Second * 30)
-
-	ch := make(chan string, 30)
-	defer close(ch)
-
-	var wg sync.WaitGroup
-	// паралельно парсим все модели
-	go func() {
-		for data := range ch {
-			go func() {
-				wg.Add(1)
-				ss := strings.Split(data, "|")
-				if err := c.ModelParse(context.Background(), ss[1]); err != nil {
-					c.logger.ErrorContext(ctx, "ModelParse failed", "brandID", ss[1], "error", err)
-				}
-				defer wg.Done()
-			}()
-		}
-	}()
-
 	collector.OnRequest(func(r *colly.Request) {
 		r.Headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
 		r.Headers.Set("Accept-Encoding", "gzip, deflate, br, zstd")
@@ -73,21 +60,30 @@ func (c *Crawler) BrandParse(ctx context.Context) error {
 		r.Headers.Set("Sec-Fetch-Mode", "navigate")
 		r.Headers.Set("Sec-Fetch-Site", "same-origin")
 		r.Headers.Set("X-Mobile-Source-Url", "https://www.mobile.de/")
-		c.logger.InfoContext(ctx, "Scraping", "url", r.URL.String())
+		c.logger.Printf("Scraping url - %s", r.URL.String())
 	})
-
 	collector.OnResponse(func(r *colly.Response) {
-		c.logger.InfoContext(ctx, "Response received", "status", r.StatusCode)
+		c.logger.Printf("Response received status - %d", r.StatusCode)
 	})
 
 	// Настраиваем обработчики для конкретной задачи
 	collector.OnXML("//*[@id=\"qs-select-make\"]/optgroup[2]/option", func(e *colly.XMLElement) {
-		c.logger.InfoContext(ctx, "Found brand", "value", e.Attr("value"), "brand", e.Text)
-		ch <- fmt.Sprintf("%s|%s", e.Text, e.Attr("value"))
+		c.logger.Printf("Found brand brand - %s , value - %s", e.Text, e.Attr("value"))
+		err := c.repo.SaveBrand(ctx, &db.Brand{
+			Name:       e.Text,
+			ExternalID: e.Attr("value"),
+			Source:     "MDE",
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
+		})
+		if err != nil {
+			c.logger.Errorf("Save brand failed %v", err)
+			return
+		}
 	})
 
 	collector.OnError(func(r *colly.Response, err error) {
-		c.logger.ErrorContext(ctx, "Request failed", "url", r.Request.URL, "error", err)
+		c.logger.Errorf("Request failed %s , err - %v", r.Request.URL, err)
 	})
 
 	// Выполняем запрос
@@ -96,53 +92,89 @@ func (c *Crawler) BrandParse(ctx context.Context) error {
 		return err
 	}
 	collector.Wait()
-	wg.Wait()
 
 	return nil
 }
 
-func (c *Crawler) ModelParse(ctx context.Context, extId string) error {
+func (c *Crawler) ModelParse(ctx context.Context) error {
+	bb, err := c.repo.AllBrands(ctx)
+	if err != nil {
+		return err
+	}
+
+	lg, _ := limitgroup.New(ctx, 10)
+	for _, b := range bb {
+		lg.Go(func() error {
+			return c.modelParse(ctx, b)
+		})
+	}
+
+	return lg.Wait()
+}
+
+func (c *Crawler) modelParse(ctx context.Context, b *db.Brand) error {
 	collector := c.collector.Clone()
 	collector.OnResponse(func(r *colly.Response) {
 		var data ModelsJSON
 		err := json.Unmarshal(r.Body, &data)
 		if err != nil {
-			c.logger.ErrorContext(ctx, "Error unmarshalling json", "error", err)
+			c.logger.Errorf("Error unmarshalling json - %v", err)
+			return
 		}
-		c.logger.InfoContext(ctx, "Model parsed", "data", data)
 		for item := range data.Data {
 			if data.Data[item].OptgroupLabel != "" {
 				for innerItem := range data.Data[item].Items {
 					if strings.Contains(data.Data[item].Items[innerItem].Label, "alle") || strings.Contains(data.Data[item].Items[innerItem].Label, "All") || strings.Contains(data.Data[item].Items[innerItem].Label, "Other") {
 						continue
 					} else {
-						c.logger.InfoContext(ctx,
-							"MODEL-OptgroupLabel",
+						c.logger.Printf(
+							"MODEL-OptgroupLabel %s:%s %s:%s",
 							"NAME", data.Data[item].Items[innerItem].Label,
 							"SourceExternalId", data.Data[item].Items[innerItem].Value,
 						)
+						err = c.repo.SaveModel(ctx, &db.Model{
+							Name:       data.Data[item].Items[innerItem].Label,
+							BrandID:    b.ID,
+							ExternalID: data.Data[item].Items[innerItem].Value,
+							CreatedAt:  time.Now(),
+							UpdatedAt:  time.Now(),
+						})
+						if err != nil {
+							c.logger.Errorf("Save model failed %s-%v", "error", err)
+							return
+						}
 					}
 				}
 			} else if strings.Contains(data.Data[item].Label, "Other") {
 				continue
 			}
-			c.logger.InfoContext(ctx,
-				"MODEL",
+			c.logger.Printf(
+				"MODEL %s:%s %s:%s",
 				"NAME", data.Data[item].Label,
 				"SourceExternalId", data.Data[item].Value,
 			)
+			err = c.repo.SaveModel(ctx, &db.Model{
+				Name:       data.Data[item].Label,
+				BrandID:    b.ID,
+				ExternalID: data.Data[item].Value,
+				CreatedAt:  time.Now(),
+				UpdatedAt:  time.Now(),
+			})
+			if err != nil {
+				c.logger.Errorf("Save model failed %s - %v", "error", err)
+				return
+			}
 		}
 	})
 
-	err := collector.Visit(fmt.Sprintf("https://m.mobile.de/consumer/api/search/reference-data/models/%s", extId))
+	err := collector.Visit(fmt.Sprintf("https://m.mobile.de/consumer/api/search/reference-data/models/%s", b.ExternalID))
 	if err != nil {
 		return err
 	}
-	// Ждем завершения обработки
+
 	collector.Wait()
 
 	return nil
-
 }
 
 func (c *Crawler) PageParse(ctx context.Context, task crawlers.Task) error {
@@ -537,6 +569,6 @@ func (c *Crawler) PageParse(ctx context.Context, task crawlers.Task) error {
 	return nil
 }
 
-func (c *Crawler) ListParse(ctx context.Context) error {
+func (c *Crawler) ListParse(ctx context.Context, u string) error {
 	return nil
 }

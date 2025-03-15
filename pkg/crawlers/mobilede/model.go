@@ -11,7 +11,6 @@ type Items struct {
 	Items         []InternalItem
 }
 type InternalItem struct {
-	Value   string `json:"value"`
-	Label   string `json:"label"`
-	isGroup bool   `json:"isGroup"`
+	Value string `json:"value"`
+	Label string `json:"label"`
 }
