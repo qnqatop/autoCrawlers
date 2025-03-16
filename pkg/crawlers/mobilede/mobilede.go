@@ -3,6 +3,7 @@ package mobilede
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"qnqa-auto-crawlers/pkg/limitgroup"
 	"qnqa-auto-crawlers/pkg/logger"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/gocolly/colly/v2"
 )
 
@@ -19,9 +21,10 @@ type Crawler struct {
 	logger    logger.Logger
 	collector *colly.Collector
 	repo      *db.MobileDeRepo
+	rcl       *redis.Client
 }
 
-func NewCrawler(logger logger.Logger, repo *db.MobileDeRepo) *Crawler {
+func NewCrawler(logger logger.Logger, repo *db.MobileDeRepo, rcl *redis.Client) *Crawler {
 	collector := colly.NewCollector(
 		colly.AllowedDomains("suchen.mobile.de", "m.mobile.de", "www.mobile.de", "mobile.de"),
 		colly.UserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"),
@@ -40,6 +43,7 @@ func NewCrawler(logger logger.Logger, repo *db.MobileDeRepo) *Crawler {
 		logger:    logger,
 		collector: collector,
 		repo:      repo,
+		rcl:       rcl,
 	}
 }
 
@@ -570,7 +574,89 @@ func (c *Crawler) PageParse(ctx context.Context, task crawlers.Task) error {
 }
 
 func (c *Crawler) ListParse(ctx context.Context, u string) error {
-	return nil
+	tasksChan := make(chan string)
+	lg, lgctx := limitgroup.New(ctx, 10)
+
+	for t := range tasksChan {
+		lg.Go(func() error {
+			return c.listParse(lgctx, t)
+		})
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			c.logger.Printf("Worker stopped fetching tasks\n")
+			close(tasksChan)
+			return lg.Wait()
+		default:
+			result, err := c.rcl.BLPop(ctx, 5*time.Second, "tasks").Result()
+			if err != nil {
+				if errors.Is(err, redis.Nil) {
+					continue
+				}
+				c.logger.Printf("Worker failed to pop task: %v\n", err)
+				continue
+			}
+
+			url := result[1]
+			c.logger.Printf("Worker fetched: %s\n", url)
+
+			select {
+			case tasksChan <- url:
+			case <-ctx.Done():
+				c.logger.Printf("Worker stopped while sending task\n")
+				close(tasksChan)
+				return lg.Wait()
+			}
+		}
+	}
+}
+
+func (c *Crawler) listParse(ctx context.Context, url string) (err error) {
+	collector := c.collector.Clone()
+	collector.OnRequest(func(r *colly.Request) {
+		r.Headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+		r.Headers.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+		r.Headers.Set("Accept-Language", "de,en-US;q=0.7,en;q=0.3")
+		r.Headers.Set("Origin", "https://www.mobile.de")
+		r.Headers.Set("Referer", "https://www.mobile.de/")
+		r.Headers.Set("Sec-Ch-Ua", `"Chromium";v="134", "Not:A-Brand";v="24", "Google Chrome";v="134"`)
+		r.Headers.Set("Sec-Ch-Ua-Mobile", "?0")
+		r.Headers.Set("Sec-Ch-Ua-Platform", `"macOS"`)
+		r.Headers.Set("Sec-Fetch-Dest", "document")
+		r.Headers.Set("Sec-Fetch-Mode", "navigate")
+		r.Headers.Set("Sec-Fetch-Site", "same-origin")
+		r.Headers.Set("X-Mobile-Source-Url", "https://www.mobile.de/")
+		c.logger.Printf("Scraping url - %s", r.URL.String())
+	})
+	collector.OnResponse(func(r *colly.Response) {
+		var data AllJson
+		err := json.Unmarshal(r.Body, &data)
+		if err != nil {
+			c.logger.Errorf("Error unmarshalling json - %v", err)
+			return
+		}
+
+		lg, _ := limitgroup.New(ctx, 3)
+		for i, item := range data.Items {
+			lg.Go(func() error {
+				err = c.rcl.RPush(ctx, "auto-url", fmt.Sprintf("https://m.mobile.de%s", item.RelativePath)).Err()
+				if err != nil {
+					return fmt.Errorf("failed to push task for page %d: %w", i, err)
+				}
+				return nil
+			})
+		}
+		err = lg.Wait()
+	})
+
+	err = collector.Visit(url)
+	if err != nil {
+		return err
+	}
+	collector.Wait()
+	return err
 }
 
 // find interesting url https://m.mobile.de/consumer/api/search/reference-data/filters/Car

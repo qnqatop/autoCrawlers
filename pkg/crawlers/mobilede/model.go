@@ -1,10 +1,10 @@
 package mobilede
 
 type ModelsJSON struct {
-	Data []Items `json:"data"`
+	Data []DataItem `json:"data"`
 }
 
-type Items struct {
+type DataItem struct {
 	Value         string `json:"value"`
 	Label         string `json:"label"`
 	OptgroupLabel string `json:"optgroupLabel"`
@@ -13,4 +13,19 @@ type Items struct {
 type InternalItem struct {
 	Value string `json:"value"`
 	Label string `json:"label"`
+}
+
+type ListParse struct {
+}
+
+type AllJson struct {
+	HasNextPage bool   `json:"hasNextPage"`
+	Items       []Item `json:"items"`
+}
+
+type Item struct {
+	IsEyeCatcher bool   `json:"isEyeCatcher"`
+	NumImages    int    `json:"numImages"`
+	RelativePath string `json:"relativeUrl"`
+	Id           int    `json:"id"`
 }

@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log/slog"
+	"log"
 	"os"
 
 	"qnqa-auto-crawlers/pkg/app"
@@ -11,10 +11,10 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/go-pg/pg/v10"
+	"github.com/go-redis/redis/v8"
 )
 
 func main() {
-	slog.SetLogLoggerLevel(slog.LevelDebug)
 	lg := logger.NewLogger(true)
 
 	var cfg app.Config
@@ -29,11 +29,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	a := app.New(dbc, lg)
+	rdb := redis.NewClient(cfg.Redis)
+	defer rdb.Close()
+
+	a := app.New(dbc, rdb, lg)
 
 	if err = a.MDcrawler.ModelParse(context.Background()); err != nil {
 		lg.Errorf("BrandParse failed : %v", err)
-		os.Exit(1)
 	}
 	lg.Printf("END")
 }
@@ -41,10 +43,7 @@ func main() {
 func initDatabaseConnection(lg logger.Logger, connOps *pg.Options, sqlVerbose bool) (*pg.DB, error) {
 	dbc := pg.Connect(connOps)
 	if sqlVerbose {
-		queryLogger := logger.NewSimpleLogger(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			AddSource: true,
-			Level:     slog.LevelInfo,
-		})))
+		queryLogger := logger.NewSimpleLogger(log.New(os.Stderr, "Q", log.LstdFlags))
 		dbc.AddQueryHook(&db.QueryLogger{SimpleLogger: queryLogger})
 	}
 	var v string

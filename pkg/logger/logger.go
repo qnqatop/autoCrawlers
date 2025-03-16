@@ -2,7 +2,7 @@ package logger
 
 import (
 	"fmt"
-	"log/slog"
+	"log"
 	"os"
 )
 
@@ -12,19 +12,11 @@ type Logger struct {
 }
 
 func NewLogger(verbose bool) Logger {
-	// Default error logger with stderr
 	l := Logger{
-		e: NewSimpleLogger(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			AddSource: true,
-			Level:     slog.LevelError,
-		}))),
+		e: NewSimpleLogger(log.New(os.Stderr, "E", log.LstdFlags|log.Lshortfile)),
 	}
-
 	if verbose {
-		l.d = NewSimpleLogger(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			AddSource: true,
-			Level:     slog.LevelDebug,
-		})))
+		l.d = NewSimpleLogger(log.New(os.Stdout, "D", log.LstdFlags|log.Lshortfile))
 	}
 	return l
 }
@@ -49,11 +41,11 @@ func (l Logger) Write(b []byte) (int, error) {
 
 // SimpleLogger is minimal instance of logger object. Most of the time you should use Logger.
 type SimpleLogger struct {
-	lg     *slog.Logger
+	lg     *log.Logger
 	prefix string
 }
 
-func NewSimpleLogger(core *slog.Logger) SimpleLogger {
+func NewSimpleLogger(core *log.Logger) SimpleLogger {
 	return SimpleLogger{lg: core}
 }
 
@@ -67,8 +59,7 @@ func (l SimpleLogger) Printf(format string, args ...interface{}) {
 	if l.lg == nil {
 		return
 	}
-	msg := fmt.Sprintf(l.prefix+format, args...)
-	l.lg.Info(msg) // or l.lg.Error(msg) depending on context
+	_ = l.lg.Output(3, fmt.Sprintf(l.prefix+format, args...))
 }
 
 // With adds key-value context to logger and returns new copy of logger object.
@@ -82,6 +73,5 @@ func (l SimpleLogger) Write(b []byte) (int, error) {
 	if l.lg == nil {
 		return 0, nil
 	}
-	l.lg.Info(string(b))
-	return len(b), nil
+	return l.lg.Writer().Write(b)
 }
