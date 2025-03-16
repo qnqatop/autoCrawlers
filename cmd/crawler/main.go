@@ -17,7 +17,7 @@ func main() {
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 	lg := logger.NewLogger(true)
 
-	var cfg Config
+	var cfg app.Config
 	if _, err := toml.DecodeFile("./cfg/local.cfg", &cfg); err != nil {
 		lg.Errorf("decoding toml: %v", err)
 		os.Exit(1)
@@ -53,8 +53,4 @@ func initDatabaseConnection(lg logger.Logger, connOps *pg.Options, sqlVerbose bo
 	}
 	lg.Printf("%s", v)
 	return dbc, nil
-}
-
-type Config struct {
-	Database *pg.Options
 }

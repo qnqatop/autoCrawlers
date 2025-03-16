@@ -3,8 +3,8 @@ package crawlers
 import "context"
 
 type (
-	// Crawler осовной интерфейс для краулеров
-	Crawler interface {
+	// Crawlerer осовной интерфейс для краулеров
+	Crawlerer interface {
 		PageParse(ctx context.Context, task Task) error
 		ListParse(ctx context.Context, url string) error
 		ModelParse(ctx context.Context) error

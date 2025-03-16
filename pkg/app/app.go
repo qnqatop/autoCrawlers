@@ -8,6 +8,10 @@ import (
 	"github.com/go-pg/pg/v10"
 )
 
+type Config struct {
+	Database *pg.Options
+}
+
 type App struct {
 	db *db.DB
 	logger.Logger

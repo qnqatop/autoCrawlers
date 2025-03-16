@@ -572,3 +572,5 @@ func (c *Crawler) PageParse(ctx context.Context, task crawlers.Task) error {
 func (c *Crawler) ListParse(ctx context.Context, u string) error {
 	return nil
 }
+
+// find interesting url https://m.mobile.de/consumer/api/search/reference-data/filters/Car
