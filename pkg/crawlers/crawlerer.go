@@ -5,8 +5,8 @@ import "context"
 type (
 	// Crawlerer осовной интерфейс для краулеров
 	Crawlerer interface {
-		PageParse(ctx context.Context, task Task) error
-		ListParse(ctx context.Context, url string) error
+		//PageParse(ctx context.Context) error
+		//ListParse(ctx context.Context, url string) error
 		ModelParse(ctx context.Context) error
 		BrandParse(ctx context.Context) error
 	}
