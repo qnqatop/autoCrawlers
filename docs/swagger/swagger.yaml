@@ -1,0 +1,47 @@
+definitions:
+  mobilede.Response:
+    properties:
+      data: {}
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
+info:
+  contact: {}
+paths:
+  /api/mbde/parse-brands:
+    get:
+      consumes:
+      - application/json
+      description: Start parsing brands from Server
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/mobilede.Response'
+      summary: Parse brands from Server
+      tags:
+      - Server
+  /api/mbde/parse-models:
+    get:
+      consumes:
+      - application/json
+      description: Start parsing models from Server
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/mobilede.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/mobilede.Response'
+      summary: Parse models from Server
+      tags:
+      - Server
+swagger: "2.0"

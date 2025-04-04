@@ -27,6 +27,7 @@ type Config struct {
 	API struct {
 		Addr string
 	}
+	HttpConfig HttpConfig
 }
 
 type HttpConfig struct {
@@ -51,20 +52,23 @@ type App struct {
 	DB       *db.DB
 	RabbitMQ *rabbitmq.Client
 	mdServer *mobilede.Server
+	mdRepo   *db.MobileDeRepo
 	echo     *echo.Echo
 }
 
 // New создает новое приложение
-func New(dbc *pg.DB, rmq *rabbitmq.Client, lg logger.Logger) *App {
+func New(dbc *pg.DB, rmq *rabbitmq.Client, cfg Config, lg logger.Logger) *App {
 	app := &App{
 		Logger:   lg,
 		DB:       db.New(dbc, lg),
 		RabbitMQ: rmq,
 		echo:     echo.New(),
+		hc:       cfg.HttpConfig,
 	}
+	app.mdRepo = db.NewMobileDERepo(app.DB)
+	app.mdServer = mobilede.New(lg, app.DB, app.mdRepo, rmq)
 
-	api.SwaggerInfo()
-
+	api.Init()
 	// Middleware
 	app.echo.Use(middleware.Logger())
 	app.echo.Use(middleware.Recover())
@@ -89,7 +93,7 @@ func (a *App) runHTTPServer(appContext context.Context, host string, port int) f
 	return func() error {
 		listenAddress := fmt.Sprintf("%s:%d", host, port)
 		a.Logger.Printf("starting http listener at http://%s\n", listenAddress)
-
+		a.Logger.Printf("swagger - http://%s/swagger/index.html\n", listenAddress)
 		eg, appContext := errgroup.WithContext(appContext)
 		eg.Go(func() error {
 			defer a.Logger.Printf("http listener stopped")

@@ -1,6 +1,7 @@
 package mobilede
 
 import (
+	"context"
 	"net/http"
 
 	"qnqa-auto-crawlers/pkg/db"
@@ -32,12 +33,13 @@ func New(logger logger.Logger, dbc *db.DB, repo *db.MobileDeRepo, rmq *rabbitmq.
 // @Accept json
 // @Produce json
 // @Success 200 {object} Response
-// @Router /api/mobilede/parse-brands [post]
+// @Router /api/mbde/parse-brands [get]
 func (h *Server) Brands(c echo.Context) error {
-	if err := h.crawler.BrandParse(c.Request().Context()); err != nil {
+	err := h.crawler.BrandParse(context.Background())
+	if err != nil {
 		return c.JSON(http.StatusInternalServerError, Response{
 			Success: false,
-			Message: "Failed to parse brands",
+			Message: err.Error(),
 		})
 	}
 
@@ -55,18 +57,20 @@ func (h *Server) Brands(c echo.Context) error {
 // @Produce json
 // @Success 200 {object} Response
 // @Failure 400 {object} Response
-// @Router /api/mobilede/parse-models [post]
+// @Router /api/mbde/parse-models [get]
 func (h *Server) Models(c echo.Context) error {
 	// Проверяем наличие брендов
-	var count int
-	if _, err := h.dbc.QueryOne(&count, "SELECT COUNT(*) FROM brands"); err != nil {
+	var data struct {
+		Count int `pg:"count"`
+	}
+	if _, err := h.dbc.QueryOne(&data, "SELECT COUNT(*) FROM brands"); err != nil {
 		return c.JSON(http.StatusInternalServerError, Response{
 			Success: false,
-			Message: "Failed to check brands",
+			Message: err.Error(),
 		})
 	}
 
-	if count == 0 {
+	if data.Count == 0 {
 		return c.JSON(http.StatusBadRequest, Response{
 			Success: false,
 			Message: "No brands found. Please parse brands first.",
@@ -76,7 +80,7 @@ func (h *Server) Models(c echo.Context) error {
 	if err := h.crawler.ModelParse(c.Request().Context()); err != nil {
 		return c.JSON(http.StatusInternalServerError, Response{
 			Success: false,
-			Message: "Failed to parse models",
+			Message: err.Error(),
 		})
 	}
 
