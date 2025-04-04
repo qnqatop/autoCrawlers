@@ -1,0 +1,21 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine # Используем образ с веб-интерфейсом управления
+    container_name: rabbitmq-queue
+    ports:
+      - "5672:5672" # Порт для AMQP протокола
+      - "15672:15672" # Порт для веб-интерфейса управления
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    volumes:
+      - ./docker/rabbitmq-data:/var/lib/rabbitmq # Том для хранения данных RabbitMQ
+    restart: unless-stopped # Перезапуск контейнера при сбоях, если не остановлен вручную
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  rabbitmq-data:
