@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"math"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
-	"qnqa-auto-crawlers/pkg/crawlers"
 	"qnqa-auto-crawlers/pkg/db"
 	"qnqa-auto-crawlers/pkg/limitgroup"
 	"qnqa-auto-crawlers/pkg/logger"
@@ -186,7 +188,8 @@ func (c *Crawler) modelParse(ctx context.Context, b *db.Brand) error {
 	return nil
 }
 
-func (c *Crawler) PageParse(ctx context.Context, task crawlers.Task) error {
+// PageParse парсит машину по прямой ссылке
+func (c *Crawler) PageParse(task rabbitmq.Task) error {
 	//const op = "app.crawlers.MobileDe.itemCrawler.ItemParse"
 	//var imageArray []string
 	//var splitColor []string
@@ -217,7 +220,7 @@ func (c *Crawler) PageParse(ctx context.Context, task crawlers.Task) error {
 	//
 	//exists, err := config.Redis.Exists(ctx, u).Result()
 	//if err != nil {
-	//	log.Errorf("Ошибка проверки существования ключа: %v", err)
+	//	c.logger.Errorff("Ошибка проверки существования ключа: %v", err)
 	//}
 	//
 	//if exists == 1 {
@@ -578,6 +581,7 @@ func (c *Crawler) PageParse(ctx context.Context, task crawlers.Task) error {
 	return nil
 }
 
+// ListSearch создает таски для парсинга листов машин
 func (c *Crawler) ListSearch(ctx context.Context) error {
 	mss, err := c.repo.AllMs(ctx)
 	if err != nil {
@@ -588,12 +592,18 @@ func (c *Crawler) ListSearch(ctx context.Context) error {
 	lgPub, lgCtx := limitgroup.New(ctx, 10)
 	for _, ms := range mss {
 		lgPub.Go(func() error {
-			return c.rabbitmq.PublishTask(lgCtx, &rabbitmq.Task{Page: p, Url: generateTaskUrl(p, ms)})
+			ms = ms
+			pp := c.pageCount("2018", "20000", ms)
+			var errPub error
+			for i := range pp {
+				errPub = c.rabbitmq.PublishTask(lgCtx, "list", &rabbitmq.Task{Page: i, Url: generateTaskUrl(p, ms)})
+			}
+			return errPub
 		})
 	}
 
 	go func() {
-		err = c.rabbitmq.ConsumeTasks(ctx, c.ListParse)
+		err = c.rabbitmq.ConsumeTasks(ctx, "list", c.ListParse)
 	}()
 
 	err = lgPub.Wait()
@@ -601,13 +611,71 @@ func (c *Crawler) ListSearch(ctx context.Context) error {
 	return err
 }
 
+// ListParse парсит полученный лист с машинами и формирует таски в отдельную очередь для для PageParse
 func (c *Crawler) ListParse(task *rabbitmq.Task) error {
 	// Тут логика парсинга листа одного для списка
 	return nil
+}
+
+func (c *Crawler) pageCount(firstRegistration, millage, ms string) int {
+
+	type CountAuto struct {
+		Total                    int    `json:"numResultsTotal"`
+		FormattedNumResultsTotal string `json:"formattedNumResultsTotal"`
+	}
+
+	var response CountAuto
+
+	searchLink, _ := url.Parse("https://suchen.mobile.de/fahrzeuge/count.json")
+	values := searchLink.Query()
+
+	values.Add("isSearchRequest", "true")
+	values.Add("damageUnrepaired", "NO_DAMAGE_UNREPAIRED")
+	values.Add("minFirstRegistrationDate", firstRegistration)
+	values.Add("maxMileage", millage)
+	values.Add("ms", ms)
+
+	searchLink.RawQuery = values.Encode()
+	client := http.Client{}
+
+	req, err := http.NewRequest("GET", searchLink.String(), http.NoBody)
+	req.Header.Set("user-agent", "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML,like Gecko) Chrome/103.0.0.0 Mobile Safari/537.36")
+	req.Header.Set("accept-language", "en")
+
+	if err != nil {
+		c.logger.Errorf(err.Error())
+	}
+	resp, err := client.Do(req)
+
+	if err != nil {
+		c.logger.Errorf("No response from request")
+	}
+
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+
+	err = json.Unmarshal(body, &response)
+
+	if err != nil {
+		c.logger.Errorf(err.Error())
+	}
+
+	result := response.Total
+
+	if err != nil {
+		c.logger.Errorf(err.Error())
+	}
+	return calculateCountPages(result)
+
 }
 
 // find interesting url https://m.mobile.de/consumer/api/search/reference-data/filters/Car
 
 func generateTaskUrl(pageNumber int, ms string) string {
 	return fmt.Sprintf(baseListUrl, strconv.Itoa(pageNumber)) + url.QueryEscape(fmt.Sprintf(baseFilter, ms))
+}
+
+func calculateCountPages(itemCount int) int {
+	return int(math.Ceil(float64(itemCount / 20)))
 }
