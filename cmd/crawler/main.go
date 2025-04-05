@@ -34,17 +34,19 @@ func main() {
 	defer dbc.Close()
 
 	// Инициализация подключения к RabbitMQ
+	var rmq *rabbitmq.Client
 	if cfg.RabbitMQ.URL != "" {
 
-		rmq, err := rabbitmq.NewClient(cfg.RabbitMQ.URL)
+		rmq, err = rabbitmq.NewClient(cfg.RabbitMQ.URL)
 		if err != nil {
 			lg.Errorf("connect to RabbitMQ: %v", err)
 			panic(err)
 		}
 		defer rmq.Close()
 	}
+
 	// Инициализация приложения
-	a := app.New(dbc, nil, cfg, lg)
+	a := app.New(dbc, rmq, cfg, lg)
 
 	// Создаем контекст с отменой
 	ctx, cancel := context.WithCancel(context.Background())

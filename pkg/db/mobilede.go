@@ -15,7 +15,7 @@ func NewMobileDERepo(db *DB) *MobileDeRepo {
 
 func (mde *MobileDeRepo) SaveBrand(ctx context.Context, brand *Brand) error {
 	_, err := mde.db.ModelContext(ctx, brand).
-		OnConflict("(source, external_id, name) DO UPDATE").
+		OnConflict("(external_id, name) DO UPDATE").
 		Set("updated_at = NOW()"). // Обновляем только updated_at, если конфликт
 		Insert()
 	return err

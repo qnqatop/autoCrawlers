@@ -32,7 +32,7 @@ func NewClient(url string) (*Client, error) {
 
 	ch, err := conn.Channel()
 	if err != nil {
-		conn.Close()
+		err = conn.Close()
 		return nil, fmt.Errorf("failed to open channel: %w", err)
 	}
 
@@ -46,8 +46,8 @@ func NewClient(url string) (*Client, error) {
 		nil,          // arguments
 	)
 	if err != nil {
-		ch.Close()
-		conn.Close()
+		err = ch.Close()
+		err = conn.Close()
 		return nil, fmt.Errorf("failed to declare queue: %w", err)
 	}
 
@@ -118,7 +118,7 @@ func (c *Client) ConsumeTasks(ctx context.Context, handler func(*Task) error) er
 				continue
 			}
 
-			if err := handler(&task); err != nil {
+			if err = handler(&task); err != nil {
 				fmt.Printf("Failed to handle task: %v\n", err)
 			}
 		}
