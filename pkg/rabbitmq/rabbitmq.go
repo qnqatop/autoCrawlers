@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"qnqa-auto-crawlers/pkg/limitgroup"
+	"qnqa-auto-crawlers/pkg/logger"
+
 	"github.com/rabbitmq/amqp091-go"
 )
 
@@ -14,17 +17,19 @@ type Task struct {
 	BrandID string `json:"brand_id"`
 	ModelID string `json:"model_id"`
 	Page    int    `json:"page"`
+	Url     string `json:"url"`
 }
 
 // Client представляет клиент RabbitMQ
 type Client struct {
+	logger.Logger
 	conn    *amqp091.Connection
 	channel *amqp091.Channel
 	queue   amqp091.Queue
 }
 
 // NewClient создает новый клиент RabbitMQ
-func NewClient(url string) (*Client, error) {
+func NewClient(url string, lg logger.Logger) (*Client, error) {
 	conn, err := amqp091.Dial(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to RabbitMQ: %w", err)
@@ -46,8 +51,14 @@ func NewClient(url string) (*Client, error) {
 		nil,          // arguments
 	)
 	if err != nil {
-		err = ch.Close()
-		err = conn.Close()
+		errCh := ch.Close()
+		if errCh != nil {
+			err = fmt.Errorf("failed to close channel: %w", err)
+		}
+		errConn := conn.Close()
+		if errConn != nil {
+			err = fmt.Errorf("failed to close connection: %w", err)
+		}
 		return nil, fmt.Errorf("failed to declare queue: %w", err)
 	}
 
@@ -55,6 +66,7 @@ func NewClient(url string) (*Client, error) {
 		conn:    conn,
 		channel: ch,
 		queue:   q,
+		Logger:  lg,
 	}, nil
 }
 
@@ -110,19 +122,18 @@ func (c *Client) ConsumeTasks(ctx context.Context, handler func(*Task) error) er
 		return fmt.Errorf("failed to register a consumer: %w", err)
 	}
 
-	go func() {
-		for msg := range msgs {
+	lg, _ := limitgroup.New(ctx, 10)
+	for msg := range msgs {
+		lg.Go(func() error {
 			var task Task
 			if err := json.Unmarshal(msg.Body, &task); err != nil {
-				fmt.Printf("Failed to unmarshal task: %v\n", err)
-				continue
+				c.Logger.Errorf("Failed to unmarshal task: %v", err)
 			}
-
 			if err = handler(&task); err != nil {
-				fmt.Printf("Failed to handle task: %v\n", err)
+				c.Logger.Errorf("Failed to handle task: %v", err)
 			}
-		}
-	}()
-
-	return nil
+			return nil
+		})
+	}
+	return lg.Wait()
 }

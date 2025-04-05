@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,8 +18,8 @@ import (
 	"github.com/gocolly/colly/v2"
 )
 
-// const baseListUrl = "https://m.mobile.de/consumer/api/search/srp/items?page=%d&page.size=20&url="
-// const baseFilter = "/auto/search.html?lang=en&damageUnrepaired=NO_DAMAGE_UNREPAIRED&q=Unfallfrei&ms=%s"
+const baseListUrl = "https://m.mobile.de/consumer/api/search/srp/items?page=%s&page.size=20&url="
+const baseFilter = "/auto/search.html?lang=en&damageUnrepaired=NO_DAMAGE_UNREPAIRED&q=Unfallfrei&fr=2018:&ml=:20000&ms=%s"
 
 type Crawler struct {
 	logger    logger.Logger
@@ -576,4 +578,36 @@ func (c *Crawler) PageParse(ctx context.Context, task crawlers.Task) error {
 	return nil
 }
 
+func (c *Crawler) ListSearch(ctx context.Context) error {
+	mss, err := c.repo.AllMs(ctx)
+	if err != nil {
+		return err
+	}
+
+	p := 0
+	lgPub, lgCtx := limitgroup.New(ctx, 10)
+	for _, ms := range mss {
+		lgPub.Go(func() error {
+			return c.rabbitmq.PublishTask(lgCtx, &rabbitmq.Task{Page: p, Url: generateTaskUrl(p, ms)})
+		})
+	}
+
+	go func() {
+		err = c.rabbitmq.ConsumeTasks(ctx, c.ListParse)
+	}()
+
+	err = lgPub.Wait()
+
+	return err
+}
+
+func (c *Crawler) ListParse(task *rabbitmq.Task) error {
+	// Тут логика парсинга листа одного для списка
+	return nil
+}
+
 // find interesting url https://m.mobile.de/consumer/api/search/reference-data/filters/Car
+
+func generateTaskUrl(pageNumber int, ms string) string {
+	return fmt.Sprintf(baseListUrl, strconv.Itoa(pageNumber)) + url.QueryEscape(fmt.Sprintf(baseFilter, ms))
+}

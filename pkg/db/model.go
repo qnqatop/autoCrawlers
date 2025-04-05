@@ -11,6 +11,17 @@ type Brand struct {
 	UpdatedAt  time.Time `pg:"updated_at"`         // Дата обновления
 }
 
+type Brands []Brand
+
+func (bb Brands) ToMap() map[int]Brand {
+	bbm := make(map[int]Brand)
+
+	for _, b := range bb {
+		bbm[b.ID] = b
+	}
+	return bbm
+}
+
 type Model struct {
 	ID         int       `pg:"id,pk"`              // Первичный ключ
 	Name       string    `pg:"name,notnull"`       // Название модели

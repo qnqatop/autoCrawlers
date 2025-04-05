@@ -37,7 +37,7 @@ func main() {
 	var rmq *rabbitmq.Client
 	if cfg.RabbitMQ.URL != "" {
 
-		rmq, err = rabbitmq.NewClient(cfg.RabbitMQ.URL)
+		rmq, err = rabbitmq.NewClient(cfg.RabbitMQ.URL, lg)
 		if err != nil {
 			lg.Errorf("connect to RabbitMQ: %v", err)
 			panic(err)

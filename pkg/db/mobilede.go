@@ -44,3 +44,28 @@ func (mde *MobileDeRepo) AllBrands(ctx context.Context) ([]*Brand, error) {
 	}
 	return brands, err
 }
+
+func (mde *MobileDeRepo) AllMs(ctx context.Context) ([]string, error) {
+	var brands Brands
+	err := mde.db.ModelContext(ctx, &brands).Select()
+	if err != nil {
+		return nil, err
+	}
+
+	var models []Model
+	err = mde.db.ModelContext(ctx, &models).Select()
+	if err != nil {
+		return nil, err
+	}
+
+	bbm := brands.ToMap()
+
+	mss := make([]string, 0, len(models))
+	for _, m := range models {
+		if res, ok := bbm[m.BrandID]; ok {
+			mss = append(mss, fmt.Sprintf("%s;%s;;", res.ExternalID, m.ExternalID))
+		}
+	}
+
+	return mss, nil
+}
