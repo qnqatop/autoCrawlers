@@ -4,10 +4,7 @@ import "encoding/json"
 
 // Task представляет задачу на парсинг
 type Task struct {
-	BrandID string `json:"brand_id"`
-	ModelID string `json:"model_id"`
-	Page    int    `json:"page"`
-	Url     string `json:"url"`
+	Url string `json:"url"`
 }
 
 func (t *Task) Model(data interface{}) error {

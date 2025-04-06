@@ -50,7 +50,11 @@ func (lpt *ListParseTask) Model(data interface{}) error {
 }
 
 func (lpt *ListParseTask) Byte() []byte {
-	return nil
+	b, err := json.Marshal(lpt)
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 type CarParseTask struct {
@@ -68,5 +72,9 @@ func (cpt *CarParseTask) Model(data interface{}) error {
 }
 
 func (cpt *CarParseTask) Byte() []byte {
-	return nil
+	b, err := json.Marshal(cpt)
+	if err != nil {
+		return nil
+	}
+	return b
 }

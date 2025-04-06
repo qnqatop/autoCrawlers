@@ -13,6 +13,7 @@ import (
 	"qnqa-auto-crawlers/pkg/db"
 	"qnqa-auto-crawlers/pkg/limitgroup"
 	"qnqa-auto-crawlers/pkg/logger"
+	"qnqa-auto-crawlers/pkg/proxy"
 	"qnqa-auto-crawlers/pkg/rabbitmq"
 
 	"github.com/gocolly/colly/v2"
@@ -29,6 +30,7 @@ type Crawler struct {
 	collector *colly.Collector
 	repo      *db.MobileDeRepo
 	rabbitmq  *rabbitmq.Client
+	balancer  *proxy.Balancer
 }
 
 func NewCrawler(logger logger.Logger, repo *db.MobileDeRepo, rmq *rabbitmq.Client) *Crawler {
@@ -51,6 +53,20 @@ func NewCrawler(logger logger.Logger, repo *db.MobileDeRepo, rmq *rabbitmq.Clien
 		collector: collector,
 		repo:      repo,
 		rabbitmq:  rmq,
+		balancer:  proxy.NewBalancer(),
+	}
+
+	proxyCount, err := c.balancer.Load()
+	if err != nil {
+		c.logger.Errorf("load proxy err=%v", err)
+	}
+
+	// Если есть прокси используем их
+	if proxyCount != 0 {
+		rp, err := c.balancer.RoundRobinProxySwitcher()
+		if err == nil {
+			c.collector.SetProxyFunc(rp)
+		}
 	}
 
 	go c.rabbitmq.ConsumeTasks(context.Background(), "list", c.ListParse)
@@ -592,11 +608,12 @@ func (c *Crawler) ListSearch(ctx context.Context) error {
 		return err
 	}
 
-	lgPub, lgCtx := limitgroup.New(ctx, 2)
+	lgPub, _ := limitgroup.New(ctx, 2)
 	for _, ms := range mss {
+		// nolint
 		lgPub.Go(func() error {
-			c.rabbitmq.PublishTask(lgCtx, "list", &rabbitmq.Task{Url: generateTaskUrl(ms)})
-			return nil
+			err = c.rabbitmq.PublishTask(context.Background(), "list", &rabbitmq.Task{Url: generateTaskUrl(ms)})
+			return err
 		})
 	}
 
@@ -610,7 +627,7 @@ func (c *Crawler) ListParse(ctx context.Context, tasker crawlers.Tasker) error {
 	collector := c.collector.Clone()
 	var task ListParseTask
 
-	err := tasker.Model(task)
+	err := tasker.Model(&task)
 	if err != nil {
 		return err
 	}
@@ -649,18 +666,34 @@ func (c *Crawler) ListParse(ctx context.Context, tasker crawlers.Tasker) error {
 			qq.Set("page", strconv.Itoa(oldPage+1))
 			up.RawQuery = qq.Encode()
 
-			c.rabbitmq.PublishTask(ctx, "list", &ListParseTask{Url: up.String()})
+			err = c.rabbitmq.PublishTask(ctx, "list", &ListParseTask{Url: up.String()})
+			if err != nil {
+				c.logger.Errorf("listParse mbde err=%v", err)
+			}
 		}
 
 		for i, item := range data.Items {
 			if item.RelativePath == "" {
 				continue
 			}
-			c.rabbitmq.PublishTask(ctx, "car", &CarParseTask{RelativePath: data.Items[i].RelativePath, ExternalId: data.Items[i].Id})
+			err = c.rabbitmq.PublishTask(ctx, "car", &CarParseTask{RelativePath: data.Items[i].RelativePath, ExternalId: data.Items[i].Id})
+			if err != nil {
+				c.logger.Errorf("listParse mbde err=%v", err)
+			}
 		}
 	})
 
-	// Тут логика парсинга листа одного для списка
+	collector.OnError(func(r *colly.Response, err error) {
+		c.logger.Errorf("Request failed %s , err - %v", r.Request.URL, err)
+	})
+
+	// Выполняем запрос
+	err = collector.Visit(task.Url)
+	if err != nil {
+		return err
+	}
+	collector.Wait()
+
 	return nil
 }
 

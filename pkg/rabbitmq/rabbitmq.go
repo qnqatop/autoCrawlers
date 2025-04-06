@@ -100,10 +100,11 @@ func (c *Client) Close() error {
 }
 
 // PublishTask публикует задачу в очередь
-func (c *Client) PublishTask(ctx context.Context, queueName string, task crawlers.Tasker) {
+func (c *Client) PublishTask(ctx context.Context, queueName string, task crawlers.Tasker) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	body := task.Byte()
 	err := c.channel.PublishWithContext(ctx,
 		"",                      // exchange
 		c.queue[queueName].Name, // routing key
@@ -111,11 +112,13 @@ func (c *Client) PublishTask(ctx context.Context, queueName string, task crawler
 		false,                   // immediate
 		amqp091.Publishing{
 			ContentType: "application/json",
-			Body:        task.Byte(),
+			Body:        body,
 		})
 	if err != nil {
 		c.Logger.Errorf("failed to publish task err=%v", err)
+		return err
 	}
+	return nil
 }
 
 // ConsumeTasks начинает потребление задач из очереди
@@ -133,7 +136,7 @@ func (c *Client) ConsumeTasks(ctx context.Context, queueName string, handler fun
 		c.Logger.Errorf("failed to register a consumer: %v", err)
 	}
 
-	lg, _ := limitgroup.New(ctx, 10)
+	lg, _ := limitgroup.New(ctx, 5)
 	for msg := range msgs {
 		lg.Go(func() error {
 			var task Task
