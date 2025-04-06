@@ -1,6 +1,12 @@
 package mobilede
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+	"time"
+
+	"qnqa-auto-crawlers/pkg/crawlers"
+)
 
 type ModelsJSON struct {
 	Data []DataItem `json:"data"`
@@ -77,4 +83,106 @@ func (cpt *CarParseTask) Byte() []byte {
 		return nil
 	}
 	return b
+}
+
+type Auto struct {
+	ExternalID        string    `json:"externalId"`
+	Year              int       `json:"year"`
+	OwnersCount       int       `json:"ownersCount"`
+	Mileage           int       `json:"mileage"`
+	AdLink            string    `json:"adLink"`
+	FuelType          string    `json:"fuelType"`
+	TransmissionType  string    `json:"transmissionType"`
+	EcoType           string    `json:"eco_type"`
+	EnginePower       int       `json:"engine_power"`
+	EngineVolume      int       `json:"engine_volume"`
+	Warranty          int       `json:"warranty"`
+	Dealer            Dealer    `json:"dealer"`
+	Country           Country   `json:"country"`
+	Price             Price     `json:"price"`
+	Currency          Currency  `json:"currency"`
+	Model             string    `json:"model_name"`
+	Brand             string    `json:"brand_name"`
+	Location          Location  `json:"location"`
+	Name              string    `json:"name"`
+	FirstRegDate      time.Time `json:"first_reg_date"`
+	LiterEngineVolume float64   `json:"liter_engine_volume"`
+	Age               int       `json:"age"`
+	Vin               *string   `json:"vin"`
+	ExternalUrl       string    `json:"externalUrl"`
+	Colors            []Color   `json:"colors"`
+}
+
+type Color struct {
+	Type string `json:"type"`
+	Name string `json:"name"`
+}
+type Location struct {
+	City               string `json:"city"`
+	Street             string `json:"street"`
+	Num                string `json:"num"`
+	Zip                string `json:"zip"`
+	CountryID          string `json:"country"`
+	Floor              string `json:"floor"`
+	Comment            string `json:"comment"`
+	IsDefaultInCountry bool   `json:"is_default_in_country"`
+}
+
+type Country struct {
+	Name          string `json:"name"`
+	IsCustomUnion bool   `json:"is_custom_union"`
+	IsCreateAllow bool   `json:"is_create_allow"`
+	FullNameRu    string `json:"full_name_ru"`
+	FullNameEn    string `json:"full_name_en"`
+}
+
+type Dealer struct {
+	Name    string `json:"name"`
+	Address string `json:"address"`
+	Type    string `json:"type"`
+}
+
+type Price struct {
+	Value      int  `json:"value"`
+	CurrencyId uint `json:"currency_id"`
+	IsMain     bool `json:"is_main"`
+}
+
+type Currency struct {
+	Name   string `json:"name"`
+	Symbol string `json:"symbol"`
+}
+
+type KVData map[string]string
+
+func NewKVData() KVData {
+	return make(KVData)
+}
+
+func (k KVData) FuelType() string {
+	switch {
+	case k.isElectric():
+		return crawlers.ElectricType
+	case k.isHybridType():
+		return crawlers.HybridType
+	case k.isHydrogenType():
+		return crawlers.HydrogenType
+	default:
+		return crawlers.PetrolType
+	}
+}
+
+func (k KVData) isElectric() bool {
+	if k["Anderer Energieträger"] == "Strom" && k["Antriebsart"] == "Elektromotor" && !strings.Contains(k["Kraftstoffart"], "Hybrid") {
+		return true
+	}
+	return false
+}
+
+func (k KVData) isHybridType() bool {
+	return strings.Contains(k["Kraftstoffart"], "Hybrid")
+}
+
+func (k KVData) isHydrogenType() bool {
+	return strings.Contains(k["Anderer Energieträger"], "Wasserstoff")
 }
