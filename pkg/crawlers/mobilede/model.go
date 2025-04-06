@@ -1,5 +1,7 @@
 package mobilede
 
+import "encoding/json"
+
 type ModelsJSON struct {
 	Data []DataItem `json:"data"`
 }
@@ -15,10 +17,7 @@ type InternalItem struct {
 	Label string `json:"label"`
 }
 
-type ListParse struct {
-}
-
-type AllJson struct {
+type ListParseResponse struct {
 	HasNextPage bool   `json:"hasNextPage"`
 	Items       []Item `json:"items"`
 }
@@ -28,4 +27,54 @@ type Item struct {
 	NumImages    int    `json:"numImages"`
 	RelativePath string `json:"relativeUrl"`
 	Id           int    `json:"id"`
+}
+
+// Response представляет стандартный ответ API
+type Response struct {
+	Success bool        `json:"success"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data,omitempty"`
+}
+
+type ListParseTask struct {
+	Url string `json:"url"`
+}
+
+func (lpt *ListParseTask) Model(data interface{}) error {
+	b, err := json.Marshal(lpt)
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(b, &data)
+	return err
+}
+
+func (lpt *ListParseTask) Byte() []byte {
+	b, err := json.Marshal(lpt)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+type CarParseTask struct {
+	RelativePath string `json:"relativePath"`
+	ExternalId   int    `json:"externalId"`
+}
+
+func (cpt *CarParseTask) Model(data interface{}) error {
+	b, err := json.Marshal(cpt)
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(b, &data)
+	return err
+}
+
+func (cpt *CarParseTask) Byte() []byte {
+	b, err := json.Marshal(cpt)
+	if err != nil {
+		return nil
+	}
+	return b
 }

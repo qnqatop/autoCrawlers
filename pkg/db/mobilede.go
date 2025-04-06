@@ -15,7 +15,7 @@ func NewMobileDERepo(db *DB) *MobileDeRepo {
 
 func (mde *MobileDeRepo) SaveBrand(ctx context.Context, brand *Brand) error {
 	_, err := mde.db.ModelContext(ctx, brand).
-		OnConflict("(source, external_id, name) DO UPDATE").
+		OnConflict("(external_id, name) DO UPDATE").
 		Set("updated_at = NOW()"). // Обновляем только updated_at, если конфликт
 		Insert()
 	return err
@@ -43,4 +43,29 @@ func (mde *MobileDeRepo) AllBrands(ctx context.Context) ([]*Brand, error) {
 		return nil, err
 	}
 	return brands, err
+}
+
+func (mde *MobileDeRepo) AllMs(ctx context.Context) ([]string, error) {
+	var brands Brands
+	err := mde.db.ModelContext(ctx, &brands).Select()
+	if err != nil {
+		return nil, err
+	}
+
+	var models []Model
+	err = mde.db.ModelContext(ctx, &models).Select()
+	if err != nil {
+		return nil, err
+	}
+
+	bbm := brands.ToMap()
+
+	mss := make([]string, 0, len(models))
+	for _, m := range models {
+		if res, ok := bbm[m.BrandID]; ok {
+			mss = append(mss, fmt.Sprintf("%s;%s;;", res.ExternalID, m.ExternalID))
+		}
+	}
+
+	return mss, nil
 }
