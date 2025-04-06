@@ -1,24 +1,21 @@
 package crawlers
 
-import "context"
+import (
+	"context"
+)
 
 type (
 	// Crawlerer осовной интерфейс для краулеров
 	Crawlerer interface {
 		//PageParse(ctx context.Context) error
-		//ListParse(ctx context.Context, url string) error
+		ListParse(ctx context.Context, task Tasker) error
 		ModelParse(ctx context.Context) error
 		BrandParse(ctx context.Context) error
 	}
 
-	Task struct {
-		Parse *Parse
-		Err   error
-	}
-	Parse struct {
-		Source string
-		Path   string
-		ID     string
-		Brand  string
+	// Tasker основной интерфейс для тасок краулера
+	Tasker interface {
+		Model(data interface{}) error
+		Byte() []byte
 	}
 )

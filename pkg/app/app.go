@@ -121,4 +121,5 @@ func (a *App) registerAPIHandler() {
 	// Маршруты Server
 	mbdeGroup.GET("/parse-brands", a.mdServer.Brands)
 	mbdeGroup.GET("/parse-models", a.mdServer.Models)
+	mbdeGroup.GET("/parse-list-search", a.mdServer.ListSearch)
 }
