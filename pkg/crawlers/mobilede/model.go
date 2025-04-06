@@ -29,3 +29,10 @@ type Item struct {
 	RelativePath string `json:"relativeUrl"`
 	Id           int    `json:"id"`
 }
+
+// Response представляет стандартный ответ API
+type Response struct {
+	Success bool        `json:"success"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data,omitempty"`
+}

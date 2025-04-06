@@ -593,8 +593,11 @@ func (c *Crawler) ListSearch(ctx context.Context) error {
 	for _, ms := range mss {
 		lgPub.Go(func() error {
 			ms = ms
-			pp := c.pageCount("2018", "20000", ms)
 			var errPub error
+			pp, errPub := c.pageCount("2018", "20000", ms)
+			if errPub != nil {
+				return err
+			}
 			for i := range pp {
 				errPub = c.rabbitmq.PublishTask(lgCtx, "list", &rabbitmq.Task{Page: i, Url: generateTaskUrl(p, ms)})
 			}
@@ -617,8 +620,7 @@ func (c *Crawler) ListParse(task *rabbitmq.Task) error {
 	return nil
 }
 
-func (c *Crawler) pageCount(firstRegistration, millage, ms string) int {
-
+func (c *Crawler) pageCount(firstRegistration, millage, ms string) (int, error) {
 	type CountAuto struct {
 		Total                    int    `json:"numResultsTotal"`
 		FormattedNumResultsTotal string `json:"formattedNumResultsTotal"`
@@ -641,33 +643,28 @@ func (c *Crawler) pageCount(firstRegistration, millage, ms string) int {
 	req, err := http.NewRequest("GET", searchLink.String(), http.NoBody)
 	req.Header.Set("user-agent", "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML,like Gecko) Chrome/103.0.0.0 Mobile Safari/537.36")
 	req.Header.Set("accept-language", "en")
-
 	if err != nil {
-		c.logger.Errorf(err.Error())
+		return 0, err
 	}
-	resp, err := client.Do(req)
 
+	resp, err := client.Do(req)
 	if err != nil {
-		c.logger.Errorf("No response from request")
+		return 0, err
 	}
 
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
 
 	err = json.Unmarshal(body, &response)
-
 	if err != nil {
-		c.logger.Errorf(err.Error())
+		return 0, err
 	}
 
-	result := response.Total
-
-	if err != nil {
-		c.logger.Errorf(err.Error())
-	}
-	return calculateCountPages(result)
-
+	return calculateCountPages(response.Total), nil
 }
 
 // find interesting url https://m.mobile.de/consumer/api/search/reference-data/filters/Car

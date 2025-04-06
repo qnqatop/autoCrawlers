@@ -90,9 +90,25 @@ func (h *Server) Models(c echo.Context) error {
 	})
 }
 
-// Response представляет стандартный ответ API
-type Response struct {
-	Success bool        `json:"success"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
+// ListSearch обрабатывает запрос на парсинг страниц авто
+// @Summary Parse brands from Server
+// @Description Start parsing brands from Server
+// @Tags Server
+// @Accept json
+// @Produce json
+// @Success 200 {object} Response
+// @Router /api/mbde/parse-list-search [get]
+func (h *Server) ListSearch(c echo.Context) error {
+	err := h.crawler.ListSearch(context.Background())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, Response{
+			Success: false,
+			Message: err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, Response{
+		Success: true,
+		Message: "ListSearch parsing started successfully",
+	})
 }
