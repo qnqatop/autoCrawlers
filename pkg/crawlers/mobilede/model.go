@@ -111,6 +111,7 @@ type Auto struct {
 	Vin               *string   `json:"vin"`
 	ExternalUrl       string    `json:"externalUrl"`
 	Colors            []Color   `json:"colors"`
+	OtherData         KVData    `json:"otherData"`
 }
 
 type Color struct {

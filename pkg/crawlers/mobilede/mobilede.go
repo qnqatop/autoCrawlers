@@ -33,6 +33,8 @@ type Crawler struct {
 	repo      *db.MobileDeRepo
 	rabbitmq  *rabbitmq.Client
 	balancer  *proxy.Balancer
+	brandMap  map[string]int
+	modelMap  map[string]int
 }
 
 func NewCrawler(logger logger.Logger, repo *db.MobileDeRepo, rmq *rabbitmq.Client) *Crawler {
@@ -57,6 +59,18 @@ func NewCrawler(logger logger.Logger, repo *db.MobileDeRepo, rmq *rabbitmq.Clien
 		rabbitmq:  rmq,
 		balancer:  proxy.NewBalancer(),
 	}
+
+	mm, err := c.repo.AllModels(context.Background())
+	if err != nil {
+		c.logger.Errorf("fill models err=%v", err)
+	}
+	c.modelMap = mm.NameWithId()
+
+	bb, err := c.repo.AllBrands(context.Background())
+	if err != nil {
+		c.logger.Errorf("fill brands err=%v", err)
+	}
+	c.brandMap = bb.NameWithId()
 
 	proxyCount, err := c.balancer.Load()
 	if err != nil {
@@ -145,7 +159,7 @@ func (c *Crawler) ModelParse(ctx context.Context) error {
 	return lg.Wait()
 }
 
-func (c *Crawler) modelParse(ctx context.Context, b *db.Brand) error {
+func (c *Crawler) modelParse(ctx context.Context, b db.Brand) error {
 	collector := c.collector.Clone()
 	collector.OnResponse(func(r *colly.Response) {
 		var data ModelsJSON
@@ -212,9 +226,7 @@ func (c *Crawler) modelParse(ctx context.Context, b *db.Brand) error {
 
 // PageParse парсит машину по прямой ссылке
 func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
-	var imageArray []string
-	keyValueTechDaten := NewKVData()
-	auto := Auto{}
+	var auto Auto
 
 	var task CarParseTask
 	err := tasker.Model(&task)
@@ -310,6 +322,7 @@ func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
 	})
 
 	//все фото
+	var imageArray []string
 	c.collector.OnXML("//*[starts-with(@data-testid, 'thumbnail-image')][@src]", func(e *colly.XMLElement) {
 		imageArray = append(imageArray, e.Attr("src"))
 	})
@@ -333,8 +346,9 @@ func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
 
 	//создаем мапу по характеристикам
 	i := 0
+	techData := NewKVData()
 	for _, key := range keyArray {
-		keyValueTechDaten[key] = valueArray[i]
+		techData[key] = valueArray[i]
 		i++
 	}
 
@@ -343,15 +357,15 @@ func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
 		return nil
 	}
 
-	auto.FuelType = keyValueTechDaten.FuelType()
+	auto.FuelType = techData.FuelType()
 
 	//сохранение цвета кузова и салона
-	checkColorSalon := strings.Contains(keyValueTechDaten["Innenausstattung"], ", ")
+	checkColorSalon := strings.Contains(techData["Innenausstattung"], ", ")
 
 	auto.Colors = make([]Color, 0, 2)
 
 	if checkColorSalon {
-		splitColor := strings.Split(keyValueTechDaten["Innenausstattung"], ", ")
+		splitColor := strings.Split(techData["Innenausstattung"], ", ")
 		// цвет салона и кузова
 		auto.Colors = append(auto.Colors,
 			Color{Name: splitColor[0], Type: "salon"},
@@ -359,33 +373,53 @@ func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
 		)
 	} else {
 		// цвет кузова
-		auto.Colors = append(auto.Colors, Color{Name: keyValueTechDaten["Farbe"], Type: "body"})
+		auto.Colors = append(auto.Colors, Color{Name: techData["Farbe"], Type: "body"})
 	}
 
 	//расчет двигателя в литрах
 
-	auto.Mileage, _ = strconv.Atoi(Kilometre(keyValueTechDaten["Kilometerstand"]))
+	auto.Mileage, _ = strconv.Atoi(Kilometre(techData["Kilometerstand"]))
 
 	if auto.Mileage <= 1000 {
 		auto.OwnersCount = 0
 	} else {
-		auto.OwnersCount, _ = strconv.Atoi(keyValueTechDaten["Anzahl der Fahrzeughalter"])
+		auto.OwnersCount, _ = strconv.Atoi(techData["Anzahl der Fahrzeughalter"])
 	}
 
-	auto.LiterEngineVolume = float64(EngineVolume(keyValueTechDaten["Hubraum"])) / 1000
-	auto.EnginePower, _ = strconv.Atoi(EnginePower(keyValueTechDaten["Leistung"]))
-	auto.FirstRegDate = FirstRegDate(strings.Replace(keyValueTechDaten["Erstzulassung"], "/", "-", 1))
+	auto.LiterEngineVolume = float64(EngineVolume(techData["Hubraum"])) / 1000
+	auto.EnginePower, _ = strconv.Atoi(EnginePower(techData["Leistung"]))
+	auto.FirstRegDate = FirstRegDate(strings.Replace(techData["Erstzulassung"], "/", "-", 1))
 	auto.Year = auto.FirstRegDate.Year()
 
-	auto.TransmissionType = keyValueTechDaten["Getriebe"]
-	auto.EcoType = EcoType(keyValueTechDaten["Umweltplakette"])
+	auto.TransmissionType = techData["Getriebe"]
+	auto.EcoType = EcoType(techData["Umweltplakette"])
 	auto.Name = fmt.Sprintf("%s %s", auto.Brand, auto.Model)
-	auto.EngineVolume = EngineVolume(keyValueTechDaten["Hubraum"])
+	auto.EngineVolume = EngineVolume(techData["Hubraum"])
 	if auto.FuelType == crawlers.ElectricType {
 		auto.LiterEngineVolume = 0
 		auto.EngineVolume = 0
 	}
-	// тут будет метод для сохранения в бд
+	auto.OtherData = techData
+
+	data, err := json.Marshal(auto)
+	if err != nil {
+		c.logger.Errorf("marshal json error=%v", err)
+		return nil
+	}
+	bId := c.brandMap[strings.ToLower(auto.Brand)]
+	mId := c.modelMap[fmt.Sprintf("%d%s", bId, strings.ToLower(auto.Model))]
+	err = c.repo.SaveAuto(ctx, &db.Car{
+		BrandID:   bId,
+		ModelID:   mId,
+		Data:      string(data),
+		IsActive:  false,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	})
+	if err != nil {
+		c.logger.Errorf("save car err=%v", err)
+	}
+
 	return nil
 }
 

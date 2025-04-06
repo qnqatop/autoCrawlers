@@ -1,6 +1,10 @@
 package db
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 type Brand struct {
 	ID         int       `pg:"id,pk"`              // Первичный ключ
@@ -20,6 +24,26 @@ func (bb Brands) ToMap() map[int]Brand {
 		bbm[b.ID] = b
 	}
 	return bbm
+}
+
+func (bb Brands) NameWithId() map[string]int {
+	bbm := make(map[string]int)
+
+	for _, b := range bb {
+		bbm[strings.ToLower(b.Name)] = b.ID
+	}
+	return bbm
+}
+
+type Models []Model
+
+func (mm Models) NameWithId() map[string]int {
+	mmm := make(map[string]int)
+
+	for _, m := range mm {
+		mmm[fmt.Sprintf("%d%s", m.BrandID, strings.ToLower(m.Name))] = m.ID
+	}
+	return mmm
 }
 
 type Model struct {

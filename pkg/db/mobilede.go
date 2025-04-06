@@ -36,13 +36,22 @@ func (mde *MobileDeRepo) SaveAuto(ctx context.Context, car *Car) error {
 	return nil
 }
 
-func (mde *MobileDeRepo) AllBrands(ctx context.Context) ([]*Brand, error) {
-	var brands []*Brand
+func (mde *MobileDeRepo) AllBrands(ctx context.Context) (Brands, error) {
+	var brands Brands
 	err := mde.db.ModelContext(ctx, &brands).Select()
 	if err != nil {
 		return nil, err
 	}
 	return brands, err
+}
+
+func (mde *MobileDeRepo) AllModels(ctx context.Context) (Models, error) {
+	var models Models
+	err := mde.db.ModelContext(ctx, &models).Select()
+	if err != nil {
+		return nil, err
+	}
+	return models, err
 }
 
 func (mde *MobileDeRepo) AllMs(ctx context.Context) ([]string, error) {
