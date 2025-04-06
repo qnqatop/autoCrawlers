@@ -327,7 +327,7 @@ func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
 
 	if len(imageArray) <= 14 {
 		err = fmt.Errorf("MOBILEDE skip len(carImagesPath) < 15 count (%d) , brandName: %s", len(imageArray), auto.Brand)
-		c.logger.Errorf(err.Error())
+		c.logger.Errorf("%v", err)
 		return nil
 	}
 
@@ -351,13 +351,12 @@ func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
 	auto.Colors = make([]Color, 0, 2)
 
 	if checkColorSalon {
-		var splitColor []string
-		splitColor = strings.Split(keyValueTechDaten["Innenausstattung"], ", ")
-		// цвет салона
-		auto.Colors = append(auto.Colors, Color{Name: splitColor[0], Type: "salon"})
-		// цвет кузова
-		auto.Colors = append(auto.Colors, Color{Name: splitColor[1], Type: "body"})
-
+		splitColor := strings.Split(keyValueTechDaten["Innenausstattung"], ", ")
+		// цвет салона и кузова
+		auto.Colors = append(auto.Colors,
+			Color{Name: splitColor[0], Type: "salon"},
+			Color{Name: splitColor[1], Type: "body"},
+		)
 	} else {
 		// цвет кузова
 		auto.Colors = append(auto.Colors, Color{Name: keyValueTechDaten["Farbe"], Type: "body"})
