@@ -39,7 +39,6 @@ type Models []Model
 
 func (mm Models) NameWithId() map[string]int {
 	mmm := make(map[string]int)
-
 	for _, m := range mm {
 		mmm[fmt.Sprintf("%d%s", m.BrandID, strings.ToLower(m.Name))] = m.ID
 	}
@@ -56,11 +55,10 @@ type Model struct {
 }
 
 type Car struct {
-	ID        int       `pg:"id"`               // Часть составного ключа (id, brand_id)
-	BrandID   int       `pg:"brand_id,pk"`      // Часть составного ключа и ключ партиционирования
-	ModelID   int       `pg:"model_id,notnull"` // Внешний ключ на models
-	Data      string    `pg:"data,type:jsonb"`  // JSONB поле
-	IsActive  bool      `pg:"is_active"`
-	CreatedAt time.Time `pg:"created_at"`
-	UpdatedAt time.Time `pg:"updated_at"`
+	ID         int       `pg:"id"` // Часть составного ключа (id, brand_id)
+	ExternalId int       `pg:"external_id,unique"`
+	Data       string    `pg:"data,type:jsonb"` // JSONB поле
+	IsActive   bool      `pg:"is_active"`
+	CreatedAt  time.Time `pg:"created_at"`
+	UpdatedAt  time.Time `pg:"updated_at"`
 }

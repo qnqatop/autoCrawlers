@@ -23,6 +23,7 @@ require (
 	github.com/antchfx/htmlquery v1.3.4 // indirect
 	github.com/antchfx/xmlquery v1.4.4 // indirect
 	github.com/antchfx/xpath v1.3.3 // indirect
+	github.com/bas24/googletranslatefree v0.0.0-20231117033553-f5859fe54d30 // indirect
 	github.com/bits-and-blooms/bitset v1.22.0 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect

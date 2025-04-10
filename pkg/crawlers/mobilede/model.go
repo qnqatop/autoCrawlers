@@ -64,7 +64,7 @@ func (lpt *ListParseTask) Byte() []byte {
 }
 
 type CarParseTask struct {
-	RelativePath string `json:"relativePath"`
+	RelativePath string `json:"url"`
 	ExternalId   int    `json:"externalId"`
 }
 
@@ -111,7 +111,7 @@ type Auto struct {
 	Vin               *string   `json:"vin"`
 	ExternalUrl       string    `json:"externalUrl"`
 	Colors            []Color   `json:"colors"`
-	OtherData         KVData    `json:"otherData"`
+	OtherData         Data      `json:"otherData"`
 }
 
 type Color struct {
@@ -154,13 +154,13 @@ type Currency struct {
 	Symbol string `json:"symbol"`
 }
 
-type KVData map[string]string
+type Data map[string]string
 
-func NewKVData() KVData {
-	return make(KVData)
+func NewData() Data {
+	return make(Data)
 }
 
-func (k KVData) FuelType() string {
+func (k Data) FuelType() string {
 	switch {
 	case k.isElectric():
 		return crawlers.ElectricType
@@ -173,17 +173,17 @@ func (k KVData) FuelType() string {
 	}
 }
 
-func (k KVData) isElectric() bool {
+func (k Data) isElectric() bool {
 	if k["Anderer Energieträger"] == "Strom" && k["Antriebsart"] == "Elektromotor" && !strings.Contains(k["Kraftstoffart"], "Hybrid") {
 		return true
 	}
 	return false
 }
 
-func (k KVData) isHybridType() bool {
+func (k Data) isHybridType() bool {
 	return strings.Contains(k["Kraftstoffart"], "Hybrid")
 }
 
-func (k KVData) isHydrogenType() bool {
+func (k Data) isHydrogenType() bool {
 	return strings.Contains(k["Anderer Energieträger"], "Wasserstoff")
 }

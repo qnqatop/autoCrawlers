@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"qnqa-auto-crawlers/pkg/translate"
 	"regexp"
 	"strconv"
 	"strings"
@@ -33,8 +34,6 @@ type Crawler struct {
 	repo      *db.MobileDeRepo
 	rabbitmq  *rabbitmq.Client
 	balancer  *proxy.Balancer
-	brandMap  map[string]int
-	modelMap  map[string]int
 }
 
 func NewCrawler(logger logger.Logger, repo *db.MobileDeRepo, rmq *rabbitmq.Client) *Crawler {
@@ -60,18 +59,6 @@ func NewCrawler(logger logger.Logger, repo *db.MobileDeRepo, rmq *rabbitmq.Clien
 		balancer:  proxy.NewBalancer(),
 	}
 
-	mm, err := c.repo.AllModels(context.Background())
-	if err != nil {
-		c.logger.Errorf("fill models err=%v", err)
-	}
-	c.modelMap = mm.NameWithId()
-
-	bb, err := c.repo.AllBrands(context.Background())
-	if err != nil {
-		c.logger.Errorf("fill brands err=%v", err)
-	}
-	c.brandMap = bb.NameWithId()
-
 	proxyCount, err := c.balancer.Load()
 	if err != nil {
 		c.logger.Errorf("load proxy err=%v", err)
@@ -86,7 +73,7 @@ func NewCrawler(logger logger.Logger, repo *db.MobileDeRepo, rmq *rabbitmq.Clien
 	}
 
 	go c.rabbitmq.ConsumeTasks(context.Background(), "list", c.ListParse)
-
+	go c.rabbitmq.ConsumeTasks(context.Background(), "car", c.PageParse)
 	return c
 }
 
@@ -226,15 +213,15 @@ func (c *Crawler) modelParse(ctx context.Context, b db.Brand) error {
 
 // PageParse парсит машину по прямой ссылке
 func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
+	collector := c.collector.Clone()
 	var auto Auto
-
 	var task CarParseTask
 	err := tasker.Model(&task)
 	if err != nil {
 		return err
 	}
 
-	u := "https://m.mobile.de" + task.RelativePath
+	u := fmt.Sprintf("https://suchen.mobile.de/fahrzeuge/details.html?id=%d", task.ExternalId)
 
 	//exists, err := config.Redis.Exists(ctx, u).Result()
 	//if err != nil {
@@ -253,25 +240,25 @@ func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
 	//	return nil
 	//}
 
-	c.collector.OnRequest(func(r *colly.Request) {
+	collector.OnRequest(func(r *colly.Request) {
 		r.Headers.Set("user-agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36")
 		r.Headers.Set("accept-language", "en")
 	})
 
 	//ключи по разделу TECH DATEN
 	var keyArray []string
-	c.collector.OnXML("//*[@data-testid=\"vip-technical-data-box\"]//dt", func(e *colly.XMLElement) {
+	collector.OnXML("//*[@data-testid=\"vip-technical-data-box\"]//dt", func(e *colly.XMLElement) {
 		keyArray = append(keyArray, e.Text)
 	})
 
 	//значениея по разделу TECH DATEN
 	var valueArray []string
-	c.collector.OnXML("//*[@data-testid=\"vip-technical-data-box\"]//dd", func(e *colly.XMLElement) {
+	collector.OnXML("//*[@data-testid=\"vip-technical-data-box\"]//dd", func(e *colly.XMLElement) {
 		valueArray = append(valueArray, e.Text)
 	})
 
 	//цена
-	c.collector.OnXML("//*[@data-testid=\"vip-price-box\"]/section/div/div/span", func(e *colly.XMLElement) {
+	collector.OnXML("//*[@data-testid=\"vip-price-box\"]/section/div/div/span", func(e *colly.XMLElement) {
 		reCost := regexp.MustCompile(`\d+.\d+`)
 		cost := reCost.FindString(e.Text)
 		auto.Price.Value, _ = strconv.Atoi(strings.Replace(cost, ".", "", 1))
@@ -281,7 +268,7 @@ func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
 	})
 
 	//улица, номер дома
-	c.collector.OnXML("//*[@id='db-address']", func(e *colly.XMLElement) {
+	collector.OnXML("//*[@id='db-address']", func(e *colly.XMLElement) {
 		startIndex := regexp.MustCompile(`\S\S-`).FindString(e.Text)
 		stringStreetAndNumber := strings.Split(e.Text, startIndex)[0]
 
@@ -293,12 +280,12 @@ func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
 	})
 
 	//имя диллера
-	c.collector.OnXML("//*[@data-testid=\"vip-dealer-box-content\"]/div/div[1]/div[1]/div[1]", func(e *colly.XMLElement) {
+	collector.OnXML("//*[@data-testid=\"vip-dealer-box-content\"]/div/div[1]/div[1]/div[1]", func(e *colly.XMLElement) {
 		auto.Dealer.Name = strings.Map(RemoveHiddenChars, e.Text)
 	})
 
 	//индекс, город, страна
-	c.collector.OnXML("//*[@data-testid=\"vip-dealer-box-seller-address2\"]", func(e *colly.XMLElement) {
+	collector.OnXML("//*[@data-testid=\"vip-dealer-box-seller-address2\"]", func(e *colly.XMLElement) {
 		re := regexp.MustCompile(`\D+`)
 		indexTown := re.FindAllString(e.Text, 4)
 		reIndex := regexp.MustCompile(`\D+\d+`)
@@ -313,7 +300,7 @@ func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
 		auto.Country.Name = strings.Map(RemoveHiddenChars, cName)
 	})
 
-	c.collector.OnXML("//title[@data-rh=\"true\"]", func(e *colly.XMLElement) {
+	collector.OnXML("//title[@data-rh=\"true\"]", func(e *colly.XMLElement) {
 		re := regexp.MustCompile(`\S+`)
 		brandModel := re.FindAllString(e.Text, 2)
 
@@ -323,16 +310,16 @@ func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
 
 	//все фото
 	var imageArray []string
-	c.collector.OnXML("//*[starts-with(@data-testid, 'thumbnail-image')][@src]", func(e *colly.XMLElement) {
+	collector.OnXML("//*[starts-with(@data-testid, 'thumbnail-image')][@src]", func(e *colly.XMLElement) {
 		imageArray = append(imageArray, e.Attr("src"))
 	})
 
 	//ошибка парсинка страницы
-	c.collector.OnError(func(r *colly.Response, err error) {
+	collector.OnError(func(r *colly.Response, err error) {
 		c.logger.Errorf("Request URL=%s, err=%v", r.Request.URL, err)
 	})
 
-	err = c.collector.Visit(u)
+	err = collector.Visit(u)
 	if err != nil {
 		c.logger.Errorf("Visit error=%v", err)
 		return nil
@@ -346,8 +333,10 @@ func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
 
 	//создаем мапу по характеристикам
 	i := 0
-	techData := NewKVData()
+	techData := NewData()
+	engData := NewData()
 	for _, key := range keyArray {
+		engData[translate.Translate(key)] = translate.Translate(valueArray[i])
 		techData[key] = valueArray[i]
 		i++
 	}
@@ -399,22 +388,20 @@ func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
 		auto.LiterEngineVolume = 0
 		auto.EngineVolume = 0
 	}
-	auto.OtherData = techData
+	auto.OtherData = engData
 
 	data, err := json.Marshal(auto)
 	if err != nil {
 		c.logger.Errorf("marshal json error=%v", err)
 		return nil
 	}
-	bId := c.brandMap[strings.ToLower(auto.Brand)]
-	mId := c.modelMap[fmt.Sprintf("%d%s", bId, strings.ToLower(auto.Model))]
+
 	err = c.repo.SaveAuto(ctx, &db.Car{
-		BrandID:   bId,
-		ModelID:   mId,
-		Data:      string(data),
-		IsActive:  false,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		ExternalId: task.ExternalId,
+		Data:       string(data),
+		IsActive:   false,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
 	})
 	if err != nil {
 		c.logger.Errorf("save car err=%v", err)
