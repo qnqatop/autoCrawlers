@@ -59,7 +59,7 @@ func NewCrawler(logger logger.Logger, repo *db.MobileDeRepo, rmq *rabbitmq.Clien
 		balancer:  proxy.NewBalancer(),
 	}
 
-	proxyCount, err := c.balancer.Load()
+	proxyCount, err := c.balancer.Load("")
 	if err != nil {
 		c.logger.Errorf("load proxy err=%v", err)
 	}

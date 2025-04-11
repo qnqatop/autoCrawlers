@@ -16,8 +16,17 @@ type (
 	Crawlerer interface {
 		PageParse(ctx context.Context, task Tasker) error
 		ListParse(ctx context.Context, task Tasker) error
+	}
+	AutoCrawlerer interface {
+		Crawlerer
 		ModelParse(ctx context.Context) error
 		BrandParse(ctx context.Context) error
+	}
+	GlassCrawlerer interface {
+		Crawlerer
+		Start(ctx context.Context, task Tasker) error
+		Save(ctx context.Context, task Tasker) error
+		ImageParse(ctx context.Context, task Tasker) ([]string, error)
 	}
 
 	// Tasker основной интерфейс для тасок краулера

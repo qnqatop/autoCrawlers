@@ -3,10 +3,10 @@ package app
 import (
 	"context"
 	"fmt"
+	"qnqa-auto-crawlers/pkg/crawlers/auto/mobilede"
 	"time"
 
 	"qnqa-auto-crawlers/pkg/api"
-	"qnqa-auto-crawlers/pkg/crawlers/mobilede"
 	"qnqa-auto-crawlers/pkg/db"
 	"qnqa-auto-crawlers/pkg/logger"
 	"qnqa-auto-crawlers/pkg/rabbitmq"

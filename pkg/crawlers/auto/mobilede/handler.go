@@ -27,7 +27,7 @@ func New(logger logger.Logger, dbc *db.DB, repo *db.MobileDeRepo, rmq *rabbitmq.
 }
 
 // Brands обрабатывает запрос на парсинг брендов
-// @Summary Parse brands from Server
+// @Summary Start brands from Server
 // @Description Start parsing brands from Server
 // @Tags Server
 // @Accept json
@@ -50,7 +50,7 @@ func (h *Server) Brands(c echo.Context) error {
 }
 
 // Models обрабатывает запрос на парсинг моделей
-// @Summary Parse models from Server
+// @Summary Start models from Server
 // @Description Start parsing models from Server
 // @Tags Server
 // @Accept json
@@ -91,7 +91,7 @@ func (h *Server) Models(c echo.Context) error {
 }
 
 // ListSearch обрабатывает запрос на парсинг страниц авто
-// @Summary Parse brands from Server
+// @Summary Start brands from Server
 // @Description Start parsing brands from Server
 // @Tags Server
 // @Accept json

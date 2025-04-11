@@ -17,9 +17,10 @@ package proxy
 import (
 	"bufio"
 	"context"
-	"embed"
+	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"sync/atomic"
 
 	"github.com/gocolly/colly/v2"
@@ -29,17 +30,18 @@ type Balancer struct {
 	Proxies []string
 }
 
-//go:embed proxies.txt
-var proxiesFile embed.FS
-
 func NewBalancer() *Balancer {
 	return &Balancer{
 		Proxies: make([]string, 0),
 	}
 }
 
-func (b *Balancer) Load() (int, error) {
-	file, err := proxiesFile.Open("proxies.txt")
+func (b *Balancer) Load(t string) (int, error) {
+	if t == "" {
+		t = "stocks5"
+	}
+
+	file, err := os.Open("./cfg/proxies.txt")
 	if err != nil {
 		return 0, err
 	}
@@ -48,7 +50,7 @@ func (b *Balancer) Load() (int, error) {
 	scanner := bufio.NewScanner(file)
 
 	for scanner.Scan() {
-		b.Proxies = append(b.Proxies, scanner.Text())
+		b.Proxies = append(b.Proxies, fmt.Sprintf("%s://%s", t, scanner.Text()))
 	}
 
 	return len(b.Proxies), scanner.Err()

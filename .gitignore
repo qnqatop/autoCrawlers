@@ -42,6 +42,7 @@ Thumbs.db
 .env.*.local
 config.local.yaml
 *.cfg.local
+cfg/proxies.txt
 
 # Binary files
 qnqa-auto-crawlers 
