@@ -4,25 +4,20 @@ import (
 	"context"
 )
 
-const (
-	ElectricType = "electric"
-	HybridType   = "hybrid"
-	HydrogenType = "hydrogen"
-	PetrolType   = "petrol"
-)
-
 type (
-	// Crawlerer осовной интерфейс для краулеров
-	Crawlerer interface {
-		PageParse(ctx context.Context, task Tasker) error
-		ListParse(ctx context.Context, task Tasker) error
+	// Crawler осовной интерфейс для краулеров
+	Crawler interface {
+		PageParse(ctx context.Context, task Task) error
+		ListParse(ctx context.Context, task Task) error
 		ModelParse(ctx context.Context) error
 		BrandParse(ctx context.Context) error
 	}
-
-	// Tasker основной интерфейс для тасок краулера
-	Tasker interface {
-		Model(data interface{}) error
-		Byte() []byte
+	// Task - основной интерфейс для тасок краулера
+	Task interface {
+		Type() string
+	}
+	// TaskDeserializer интерфейс для десериализации задач
+	TaskDeserializer interface {
+		Deserialize(data []byte, taskType string) (Task, error)
 	}
 )
