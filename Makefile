@@ -12,7 +12,7 @@ clean:
 all: fmt lint
 
 tools:
-	@curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin ${LINT_VERSION}
+	@curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.64.8
 
 fmt:
 	@golangci-lint run -c .golangci.yml --disable-all --enable=gci --fix

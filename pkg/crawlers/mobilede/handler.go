@@ -18,11 +18,11 @@ type Server struct {
 }
 
 // New создает новый обработчик API
-func New(logger logger.Logger, dbc *db.DB, repo *db.MobileDeRepo, rmq *rabbitmq.Client) *Server {
+func New(logger logger.Logger, dbc *db.DB, repo *db.MobileDeRepo, rmq *rabbitmq.Client, config Config) *Server {
 	return &Server{
 		logger:  logger,
 		dbc:     dbc,
-		crawler: NewCrawler(logger, repo, rmq),
+		crawler: NewCrawler(logger, repo, rmq, config),
 	}
 }
 

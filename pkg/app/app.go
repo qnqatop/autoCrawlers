@@ -28,6 +28,7 @@ type Config struct {
 		Addr string
 	}
 	HttpConfig HttpConfig
+	Mobilede   mobilede.Config
 }
 
 type HttpConfig struct {
@@ -66,7 +67,7 @@ func New(dbc *pg.DB, rmq *rabbitmq.Client, cfg Config, lg logger.Logger) *App {
 		hc:       cfg.HttpConfig,
 	}
 	app.mdRepo = db.NewMobileDERepo(app.DB)
-	app.mdServer = mobilede.New(lg, app.DB, app.mdRepo, rmq)
+	app.mdServer = mobilede.New(lg, app.DB, app.mdRepo, rmq, cfg.Mobilede)
 
 	api.Init()
 	// Middleware

@@ -3,9 +3,9 @@ package mobilede
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
-	"qnqa-auto-crawlers/pkg/translate"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,14 +18,9 @@ import (
 	"qnqa-auto-crawlers/pkg/logger"
 	"qnqa-auto-crawlers/pkg/proxy"
 	"qnqa-auto-crawlers/pkg/rabbitmq"
+	"qnqa-auto-crawlers/pkg/translate"
 
 	"github.com/gocolly/colly/v2"
-)
-
-const (
-	baseListUrl = "https://m.mobile.de/consumer/api/search/srp/items?page=1&page.size=20&url="
-	baseFilter  = "/auto/search.html?lang=en&damageUnrepaired=NO_DAMAGE_UNREPAIRED&q=Unfallfrei&fr=2018:&ml=:20000&ms=%s"
-	// countCarUrl = "https://m.mobile.de/consumer/api/search/hit-count?dam=false&fr=2018:&ml=:20000&ms=%s&ref=quickSearch&sb=rel&vc=Car"
 )
 
 type Crawler struct {
@@ -34,9 +29,16 @@ type Crawler struct {
 	repo      *db.MobileDeRepo
 	rabbitmq  *rabbitmq.Client
 	balancer  *proxy.Balancer
+	cfg       Config
 }
 
-func NewCrawler(logger logger.Logger, repo *db.MobileDeRepo, rmq *rabbitmq.Client) *Crawler {
+type Config struct {
+	BaseListUrl string
+	BaseFilter  string
+	CountCarUrl string
+}
+
+func NewCrawler(logger logger.Logger, repo *db.MobileDeRepo, rmq *rabbitmq.Client, config Config) *Crawler {
 	collector := colly.NewCollector(
 		colly.AllowedDomains("suchen.mobile.de", "m.mobile.de", "www.mobile.de", "mobile.de"),
 		colly.UserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"),
@@ -57,6 +59,7 @@ func NewCrawler(logger logger.Logger, repo *db.MobileDeRepo, rmq *rabbitmq.Clien
 		repo:      repo,
 		rabbitmq:  rmq,
 		balancer:  proxy.NewBalancer(),
+		cfg:       config,
 	}
 
 	proxyCount, err := c.balancer.Load()
@@ -212,26 +215,16 @@ func (c *Crawler) modelParse(ctx context.Context, b db.Brand) error {
 }
 
 // PageParse парсит машину по прямой ссылке
-func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
-	collector := c.collector.Clone()
-	var auto Auto
-	var task CarParseTask
-	err := tasker.Model(&task)
-	if err != nil {
-		return err
+func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Task) error {
+	task, ok := tasker.(*CarParseTask)
+	if !ok {
+		return fmt.Errorf("invalid task type for PageParse, expected CarParseTask, got %T", task)
 	}
 
-	u := fmt.Sprintf("https://suchen.mobile.de/fahrzeuge/details.html?id=%d", task.ExternalId)
+	collector := c.collector.Clone()
+	var auto Auto
 
-	//exists, err := config.Redis.Exists(ctx, u).Result()
-	//if err != nil {
-	//	c.logger.Errorff("Ошибка проверки существования ключа: %v", err)
-	//}
-	//
-	//if exists == 1 {
-	//	log.Info("Машина уже была скипнута ранее")
-	//	return nil
-	//}
+	u := fmt.Sprintf("https://suchen.mobile.de/fahrzeuge/details.html?id=%d", task.ExternalId)
 
 	// проверять по extId наличие машины в базе
 	//ok := carService.CheckCarLinkInDb(fmt.Sprint(extId))
@@ -319,7 +312,7 @@ func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
 		c.logger.Errorf("Request URL=%s, err=%v", r.Request.URL, err)
 	})
 
-	err = collector.Visit(u)
+	err := collector.Visit(u)
 	if err != nil {
 		c.logger.Errorf("Visit error=%v", err)
 		return nil
@@ -384,7 +377,7 @@ func (c *Crawler) PageParse(ctx context.Context, tasker crawlers.Tasker) error {
 	auto.EcoType = EcoType(techData["Umweltplakette"])
 	auto.Name = fmt.Sprintf("%s %s", auto.Brand, auto.Model)
 	auto.EngineVolume = EngineVolume(techData["Hubraum"])
-	if auto.FuelType == crawlers.ElectricType {
+	if auto.FuelType == ElectricType {
 		auto.LiterEngineVolume = 0
 		auto.EngineVolume = 0
 	}
@@ -421,7 +414,7 @@ func (c *Crawler) ListSearch(ctx context.Context) error {
 	for _, ms := range mss {
 		// nolint
 		lgPub.Go(func() error {
-			err = c.rabbitmq.PublishTask(context.Background(), "list", &rabbitmq.Task{Url: generateTaskUrl(ms)})
+			err = c.rabbitmq.PublishTask(context.Background(), "list", &ListParseTask{Url: c.generateTaskUrl(ms)})
 			return err
 		})
 	}
@@ -432,13 +425,12 @@ func (c *Crawler) ListSearch(ctx context.Context) error {
 }
 
 // ListParse парсит полученный лист с машинами и формирует таски в отдельную очередь для для PageParse
-func (c *Crawler) ListParse(ctx context.Context, tasker crawlers.Tasker) error {
+func (c *Crawler) ListParse(ctx context.Context, tasker crawlers.Task) error {
 	collector := c.collector.Clone()
-	var task ListParseTask
 
-	err := tasker.Model(&task)
-	if err != nil {
-		return err
+	task, ok := tasker.(*ListParseTask)
+	if !ok {
+		return fmt.Errorf("invalid task type for ListParse, expected ListParseTask, got %T", task)
 	}
 
 	collector.OnRequest(func(r *colly.Request) {
@@ -497,7 +489,7 @@ func (c *Crawler) ListParse(ctx context.Context, tasker crawlers.Tasker) error {
 	})
 
 	// Выполняем запрос
-	err = collector.Visit(task.Url)
+	err := collector.Visit(task.Url)
 	if err != nil {
 		return err
 	}
@@ -508,12 +500,33 @@ func (c *Crawler) ListParse(ctx context.Context, tasker crawlers.Tasker) error {
 
 // find interesting url https://m.mobile.de/consumer/api/search/reference-data/filters/Car
 
-func generateTaskUrl(ms string) string {
-	urlParams := fmt.Sprintf(baseFilter, ms)
+func (c *Crawler) generateTaskUrl(ms string) string {
+	urlParams := fmt.Sprintf(c.cfg.BaseFilter, ms)
 
 	encodedUrlParams := url.QueryEscape(urlParams)
 
-	return baseListUrl + encodedUrlParams
+	return c.cfg.BaseListUrl + encodedUrlParams
+}
+
+func (c *Crawler) Deserialize(data []byte, taskType string) (crawlers.Task, error) {
+	switch taskType {
+	case "mobilede.list":
+		var task ListParseTask
+		if err := json.Unmarshal(data, &task); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal ListParseTask: %w", err)
+		}
+		return &task, nil
+	case "mobilede.car":
+		var task CarParseTask
+		if err := json.Unmarshal(data, &task); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal CarParseTask: %w", err)
+		}
+	default:
+		err := errors.New("unknown task type")
+		return nil, err
+	}
+
+	return nil, nil
 }
 
 func RemoveHiddenChars(r rune) rune {

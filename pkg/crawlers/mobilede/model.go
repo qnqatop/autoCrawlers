@@ -1,11 +1,15 @@
 package mobilede
 
 import (
-	"encoding/json"
 	"strings"
 	"time"
+)
 
-	"qnqa-auto-crawlers/pkg/crawlers"
+const (
+	ElectricType = "electric"
+	HybridType   = "hybrid"
+	HydrogenType = "hydrogen"
+	PetrolType   = "petrol"
 )
 
 type ModelsJSON struct {
@@ -46,21 +50,8 @@ type ListParseTask struct {
 	Url string `json:"url"`
 }
 
-func (lpt *ListParseTask) Model(data interface{}) error {
-	b, err := json.Marshal(lpt)
-	if err != nil {
-		return err
-	}
-	err = json.Unmarshal(b, &data)
-	return err
-}
-
-func (lpt *ListParseTask) Byte() []byte {
-	b, err := json.Marshal(lpt)
-	if err != nil {
-		return nil
-	}
-	return b
+func (t *ListParseTask) Type() string {
+	return "mobilede.list"
 }
 
 type CarParseTask struct {
@@ -68,21 +59,8 @@ type CarParseTask struct {
 	ExternalId   int    `json:"externalId"`
 }
 
-func (cpt *CarParseTask) Model(data interface{}) error {
-	b, err := json.Marshal(cpt)
-	if err != nil {
-		return err
-	}
-	err = json.Unmarshal(b, &data)
-	return err
-}
-
-func (cpt *CarParseTask) Byte() []byte {
-	b, err := json.Marshal(cpt)
-	if err != nil {
-		return nil
-	}
-	return b
+func (t *CarParseTask) Type() string {
+	return "mobilede.car"
 }
 
 type Auto struct {
@@ -163,13 +141,13 @@ func NewData() Data {
 func (k Data) FuelType() string {
 	switch {
 	case k.isElectric():
-		return crawlers.ElectricType
+		return ElectricType
 	case k.isHybridType():
-		return crawlers.HybridType
+		return HybridType
 	case k.isHydrogenType():
-		return crawlers.HydrogenType
+		return HydrogenType
 	default:
-		return crawlers.PetrolType
+		return PetrolType
 	}
 }
 

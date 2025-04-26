@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"qnqa-auto-crawlers/pkg/crawlers"
@@ -16,9 +18,20 @@ import (
 // Client представляет клиент RabbitMQ
 type Client struct {
 	logger.Logger
-	conn    *amqp091.Connection
-	channel *amqp091.Channel
-	queue   map[string]amqp091.Queue
+	conn          *amqp091.Connection
+	channel       *amqp091.Channel
+	queue         map[string]amqp091.Queue
+	deserializers map[string]crawlers.TaskDeserializer
+	mu            sync.RWMutex
+}
+
+type taskPayload struct {
+	Type string          `json:"type"`
+	Data json.RawMessage `json:"data"`
+}
+
+func (p *taskPayload) Source() string {
+	return strings.Split(p.Type, ".")[0]
 }
 
 // NewClient создает новый клиент RabbitMQ
@@ -81,10 +94,12 @@ func NewClient(url string, lg logger.Logger) (*Client, error) {
 	m["list"] = q
 
 	return &Client{
-		conn:    conn,
-		channel: ch,
-		queue:   m,
-		Logger:  lg,
+		conn:          conn,
+		channel:       ch,
+		queue:         m,
+		Logger:        lg,
+		deserializers: make(map[string]crawlers.TaskDeserializer),
+		mu:            sync.RWMutex{},
 	}, nil
 }
 
@@ -99,20 +114,41 @@ func (c *Client) Close() error {
 	return nil
 }
 
+func (c *Client) RegisterDeserializer(taskType string, deserializer crawlers.TaskDeserializer) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.deserializers[taskType] = deserializer
+}
+
 // PublishTask публикует задачу в очередь
-func (c *Client) PublishTask(ctx context.Context, queueName string, task crawlers.Tasker) error {
+func (c *Client) PublishTask(ctx context.Context, queueName string, task crawlers.Task) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	body := task.Byte()
-	err := c.channel.PublishWithContext(ctx,
+	payload := taskPayload{
+		Type: task.Type(),
+		Data: nil,
+	}
+	data, err := json.Marshal(task)
+	if err != nil {
+		c.Logger.Errorf("failed to marshal task err=%v", err)
+		return err
+	}
+	payload.Data = data
+	payloadData, err := json.Marshal(payload)
+	if err != nil {
+		c.Logger.Errorf("failed to marshal task err=%v", err)
+		return err
+	}
+
+	err = c.channel.PublishWithContext(ctx,
 		"",                      // exchange
 		c.queue[queueName].Name, // routing key
 		false,                   // mandatory
 		false,                   // immediate
 		amqp091.Publishing{
 			ContentType: "application/json",
-			Body:        body,
+			Body:        payloadData,
 		})
 	if err != nil {
 		c.Logger.Errorf("failed to publish task err=%v", err)
@@ -122,7 +158,7 @@ func (c *Client) PublishTask(ctx context.Context, queueName string, task crawler
 }
 
 // ConsumeTasks начинает потребление задач из очереди
-func (c *Client) ConsumeTasks(ctx context.Context, queueName string, handler func(context.Context, crawlers.Tasker) error) {
+func (c *Client) ConsumeTasks(ctx context.Context, queueName string, handler func(context.Context, crawlers.Task) error) {
 	msgs, err := c.channel.Consume(
 		c.queue[queueName].Name, // queue
 		"",                      // consumer
@@ -139,11 +175,23 @@ func (c *Client) ConsumeTasks(ctx context.Context, queueName string, handler fun
 	lg, _ := limitgroup.New(ctx, 5)
 	for msg := range msgs {
 		lg.Go(func() error {
-			var task Task
-			if err := json.Unmarshal(msg.Body, &task); err != nil {
-				c.Logger.Errorf("Failed to unmarshal task: %v", err)
+			var payload taskPayload
+			if err := json.Unmarshal(msg.Body, &payload); err != nil {
+				return fmt.Errorf("failed to unmarshal payload: %w", err)
 			}
-			if err = handler(ctx, &task); err != nil {
+			c.mu.RLock()
+			deserializer, ok := c.deserializers[payload.Type]
+			c.mu.RUnlock()
+			if !ok {
+				return fmt.Errorf("unknown task type: %s", payload.Type)
+			}
+
+			task, err := deserializer.Deserialize(payload.Data, payload.Source())
+			if err != nil {
+				return fmt.Errorf("failed to deserialize task %s: %w", payload.Type, err)
+			}
+
+			if err = handler(ctx, task); err != nil {
 				c.Logger.Errorf("Failed to handle task: %v", err)
 			}
 			return nil
